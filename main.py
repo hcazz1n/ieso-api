@@ -2,6 +2,8 @@ from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI, Path, Query
 from bs4 import BeautifulSoup
 import requests
+import pandas
+import os
 
 class Demand:
     def __init__(self, date, hour, ont_demand, total_energy):
@@ -27,20 +29,31 @@ app = FastAPI(title='IESO API')
 
 @app.get('/')
 def root():
-    return {'message': 'This API is for obtaining IESO demand, supply, and pricing data overall, and by zone.'}
+    return 'This API is for obtaining IESO demand, supply, and pricing data overall, and by zone. /help to see all commands'
+
+@app.get('/help')
+def help():
+    return {'/' : 'Takes you to the homepage.', 
+            '/demand' : f'Provides the current power demand in Ontario as of {current_hour}:{current_minute}', 
+            '/demand/{year}' : f'Provides the current power demand in Ontario for any year between 2003 and {current_year}'}
 
 @app.get('/demand/{year}') 
 def get_demand(year: int = Path(le=current_year, ge=2003)):
-    response = requests.get(DEMAND_URL_YEAR, timeout=5)
-    soup = BeautifulSoup(response.text, 'html.parser')
-    url = soup.find('a', href=f'PUB_Demand.csv')
-    r = requests.get(f'{DEMAND_URL_YEAR}/{url.text}', stream=True)
+    web_response = requests.get(DEMAND_URL_YEAR, timeout=5)
+    soup = BeautifulSoup(web_response.text, 'html.parser')
+    url = soup.find('a', href=f'PUB_Demand_{year}.csv')
+    file_response = requests.get(f'{DEMAND_URL_YEAR}/{url.text}', stream=True)
+
+    with open(f'./output/PUB_Demand.csv', 'wb') as file:
+        file.write(file_response.content)
     
-    with open(f'PUB_Demand.csv', 'wb') as file:
-        file.write(r.content)
+    df = pandas.read_csv('./output/PUB_Demand.csv', skiprows=3)
+    json_file = open(f'./output/Demand_{year}.json', 'w+')
+    df.to_json(json_file, orient='records', indent=4)
+    json_file.close()
+    os.remove('./output/PUB_Demand.csv')
 
-
-    return {'message': f'For {current_year}, to see data for {current_month}/{current_day}, use demand/today or demand/now', 'number': year, 'url': url.text}
+    return json_file
 
 @app.get('/demand')
 def get_demand_now():
