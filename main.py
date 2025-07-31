@@ -4,13 +4,6 @@ from bs4 import BeautifulSoup
 import requests
 import pandas
 import os
-
-class Demand:
-    def __init__(self, date, hour, ont_demand, total_energy):
-        self.date = date
-        self.hour = hour
-        self.ont_demand = ont_demand
-        self.total_energy = total_energy #AKA Market Demand
         
 
 date = datetime.now(timezone(timedelta(hours=-4)))
@@ -33,7 +26,8 @@ def root():
 
 @app.get('/help')
 def help():
-    return {'/' : 'Takes you to the homepage.', 
+    return {'/' : 'Navigates to the homepage.',
+            '/help' : 'Navigates to the helper page', 
             '/demand' : f'Provides the current power demand in Ontario as of {current_hour}:{current_minute}', 
             '/demand/{year}' : f'Provides the current power demand in Ontario for any year between 2003 and {current_year}'}
 
