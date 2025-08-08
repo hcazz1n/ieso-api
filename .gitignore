@@ -1,3 +1,5 @@
 /venv
 /__pycache__
 /output
+temp.xml
+temp.csv
