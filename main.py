@@ -11,9 +11,9 @@ import json
 
 date = datetime.now(timezone(timedelta(hours=-4)))
 current_year = date.year
-current_month = date.month
-current_day = date.day
-current_hour = date.hour
+current_month = ('0' + str(date.month), date.month)[date.month > 9]
+current_day = ('0' + str(date.day), date.day)[date.day > 9]
+current_hour = ('0' + str(date.hour), date.hour)[date.hour > 9]
 current_minute = ('0' + str(date.minute), date.minute)[date.minute > 9]
 
 DEMAND_URL_YEAR = 'https://reports-public.ieso.ca/public/Demand'
@@ -68,37 +68,37 @@ def get_demand_now():
         file.write(file_response.text)
         
     tree = etree.parse('temp.xml', etree.XMLParser(remove_blank_text=True)) 
-    tree.write('temp.xml', pretty_print=True) #delete after
+    #tree.write('temp.xml', pretty_print=True)
 
     for elem in tree.getiterator(): #remove namespaces from the tags to easily find desired data using xpath
         if isinstance(elem.tag, str) and elem.tag.startswith('{'):
-            elem.tag = elem.tag.split('}', 1)[1]
+            elem.tag = elem.tag.split('}', 1)[1] #takes the index after the split
 
     data = []
-    mq_elements = tree.xpath('//MQ')
+    interval_energy = tree.xpath('//IntervalEnergy')
 
-    for tag in mq_elements:
-        market_quantity = tag.xpath('./MarketQuantity/text()')
-        energy_mw = tag.xpath('./EnergyMW/text()')
+    count = 0
 
-        data.append({
-            'MarketQuantity': market_quantity[0] if market_quantity else None,
-            'EnergyMW': float(energy_mw[0]) if energy_mw else None
-        })
+    for i in interval_energy:
+        interval = i.xpath('./Interval/text()')
+        count += 1
+        mq = i.xpath('./MQ')
+        for j in mq:
+            market_quantity = j.xpath('./MarketQuantity/text()')
+            energy_mw = j.xpath('./EnergyMW/text()')
+
+            data.append({
+                'Interval': interval[0], #[0] is the first matching result, and there is only one MarketQuantity/EnergyMW in MQ and only one Interval in IntervalEnergy. Therefore, when iterating, to the next MQ/IntervalEnergy, [0] is always the next piece of data.
+                market_quantity[0] : float(energy_mw[0]),
+            })
     
     with open('./output/Demand_Now.json', 'w') as file:
         json.dump(data, file, indent=4)
 
-    values1 = tree.xpath('//MarketQuantity/text()')
-    values2 = tree.xpath('//EnergyMW/text()')
-    print(values1)
-    print(values2)
+    return_kv_market_demand = next(key for key in data if 'Total Energy' in key and key.get('Interval') == str(count))
+    return_kv_ontario_demand = next(key for key in data if 'ONTARIO DEMAND' in key and key.get('Interval') == str(count))
 
-    # count = 0
-    # while(market_quantity):
-    #     count += 1
-
-    return {'message': f'Ontario Demand as of {current_hour}:{current_minute} on {current_year}{current_month}{current_day} is '}
+    return {'message': f'As of {current_hour}:{current_minute} on {current_year}/{current_month}/{current_day}, Ontario Demand is {return_kv_ontario_demand['ONTARIO DEMAND']} MW, and Total Energy (Market Demand) is {return_kv_market_demand['Total Energy']} MW. Ontario Demand is {round((return_kv_ontario_demand['ONTARIO DEMAND']/float(return_kv_market_demand['Total Energy']))*100, 2)}% of the Total Energy supplied by the IESO.'}
 
 
 
