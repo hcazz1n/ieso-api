@@ -5,7 +5,6 @@ import requests
 import pandas
 import os
 from lxml import etree
-import xmltodict
 import json
         
 
@@ -18,9 +17,16 @@ current_minute = ('0' + str(date.minute), date.minute)[date.minute > 9]
 
 DEMAND_URL_YEAR = 'https://reports-public.ieso.ca/public/Demand'
 DEMAND_URL_NOW = 'https://reports-public.ieso.ca/public/RealtimeTotals'
-SUPPLY_URL = ''
+SUPPLY_URL = 'https://reports-public.ieso.ca/public/GenOutputCapability/'
 PRICE_URL = ''
 
+
+def get_link(web_link, doc_link):
+    web_response = requests.get(web_link, timeout=5)
+    soup = BeautifulSoup(web_response.text, 'html.parser')
+    url = soup.find('a', href=doc_link)
+    file_response = requests.get(f'{web_link}/{url.text}', stream=True)
+    return file_response
 
 def csv_to_json(response_csv, json_file_name, skip): #takes a csv retrieved from the IESO and converts it into a JSON file. skip is the number of rows to skip from the start of the file for data such as comments in the headers. Parses and returns EVERY column.
     with open('temp.csv', 'w') as file:
@@ -47,22 +53,11 @@ def help():
             '/demand' : f'Provides the current power demand in Ontario as of {current_hour}:{current_minute}', 
             '/demand/{year}' : f'Provides the current power demand in Ontario for any year between 2003 and {current_year}'}
 
-@app.get('/demand/{year}') 
-def get_demand(year: int = Path(le=current_year, ge=2003)):
-    web_response = requests.get(DEMAND_URL_YEAR, timeout=5)
-    soup = BeautifulSoup(web_response.text, 'html.parser')
-    url = soup.find('a', href=f'PUB_Demand_{year}.csv')
-    file_response = requests.get(f'{DEMAND_URL_YEAR}/{url.text}', stream=True)
-
-    return csv_to_json(file_response, f'Demand_{year}', 3)
-
 
 @app.get('/demand')
+@app.get('/demand/now')
 def get_demand_now():
-    web_response = requests.get(DEMAND_URL_NOW, timeout=5)
-    soup = BeautifulSoup(web_response.text, 'html.parser')
-    url = soup.find('a', href=f'PUB_RealtimeTotals.xml')
-    file_response = requests.get(f'{DEMAND_URL_NOW}/{url.text}', stream=True)
+    file_response = get_link(DEMAND_URL_NOW, 'PUB_RealtimeTotals.xml')
 
     with open('temp.xml', 'w') as file:
         file.write(file_response.text)
@@ -100,7 +95,14 @@ def get_demand_now():
 
     return {'message': f'As of {current_hour}:{current_minute} on {current_year}/{current_month}/{current_day}, Ontario Demand is {return_kv_ontario_demand['ONTARIO DEMAND']} MW, and Total Energy (Market Demand) is {return_kv_market_demand['Total Energy']} MW. Ontario Demand is {round((return_kv_ontario_demand['ONTARIO DEMAND']/float(return_kv_market_demand['Total Energy']))*100, 2)}% of the Total Energy supplied by the IESO.'}
 
+@app.get('/demand/{year}') 
+def get_demand(year: int = Path(le=current_year, ge=2003)):
+    file_response = get_link(DEMAND_URL_YEAR, f'PUB_Demand_{year}.csv')
+    return csv_to_json(file_response, f'Demand_{year}', 3)
 
-
+@app.get('/supply')
+def get_supply():
+    file_response = get_link(SUPPLY_URL, 'PUB_GenOutputCapability.xml')
+    pass
 
 
