@@ -21,12 +21,26 @@ SUPPLY_URL = 'https://reports-public.ieso.ca/public/GenOutputCapability/'
 PRICE_URL = ''
 
 
-def get_link(web_link, doc_link):
+def get_link(web_link, doc_link): #gets the link to the xml/csv doc and downloads it for parsing
     web_response = requests.get(web_link, timeout=5)
     soup = BeautifulSoup(web_response.text, 'html.parser')
     url = soup.find('a', href=doc_link)
     file_response = requests.get(f'{web_link}/{url.text}', stream=True)
     return file_response
+
+def parse_xml(file_response): #parses downloaded XML and returns the ElementTree
+    with open('temp.xml', 'w') as file:
+        file.write(file_response.text)
+        
+    tree = etree.parse('temp.xml', etree.XMLParser(remove_blank_text=True))  #returns an element tree object (XML doc as a tree structure)
+    tree.write('temp.xml', pretty_print=True) #rewrites the temp.xml doc for easier navigation
+
+    for elem in tree.getiterator(): #remove namespaces from the tags to easily find desired data using xpath
+        if isinstance(elem.tag, str) and elem.tag.startswith('{'):
+            elem.tag = elem.tag.split('}', 1)[1] #takes the index after the split
+    
+    #os.remove('./temp.xml')
+    return tree
 
 def csv_to_json(response_csv, json_file_name, skip): #takes a csv retrieved from the IESO and converts it into a JSON file. skip is the number of rows to skip from the start of the file for data such as comments in the headers. Parses and returns EVERY column.
     with open('temp.csv', 'w') as file:
@@ -36,8 +50,7 @@ def csv_to_json(response_csv, json_file_name, skip): #takes a csv retrieved from
     json_file = open(f'./output/{json_file_name}.json', 'w+')
     df.to_json(json_file, orient='records', indent=4)
     json_file.close()
-    #os.remove('./output/temp.csv')
-
+    #os.remove('./temp.csv')
     return json_file
 
 app = FastAPI(title='IESO API')
@@ -58,16 +71,7 @@ def help():
 @app.get('/demand/now')
 def get_demand_now():
     file_response = get_link(DEMAND_URL_NOW, 'PUB_RealtimeTotals.xml')
-
-    with open('temp.xml', 'w') as file:
-        file.write(file_response.text)
-        
-    tree = etree.parse('temp.xml', etree.XMLParser(remove_blank_text=True)) 
-    #tree.write('temp.xml', pretty_print=True)
-
-    for elem in tree.getiterator(): #remove namespaces from the tags to easily find desired data using xpath
-        if isinstance(elem.tag, str) and elem.tag.startswith('{'):
-            elem.tag = elem.tag.split('}', 1)[1] #takes the index after the split
+    tree = parse_xml(file_response)
 
     data = []
     interval_energy = tree.xpath('//IntervalEnergy')
@@ -75,17 +79,18 @@ def get_demand_now():
     count = 0
 
     for i in interval_energy:
+        mq_data = {}
         interval = i.xpath('./Interval/text()')
         count += 1
         mq = i.xpath('./MQ')
         for j in mq:
             market_quantity = j.xpath('./MarketQuantity/text()')
             energy_mw = j.xpath('./EnergyMW/text()')
+            mq_data[market_quantity[0]] = float(energy_mw[0])
 
-            data.append({
-                'Interval': interval[0], #[0] is the first matching result, and there is only one MarketQuantity/EnergyMW in MQ and only one Interval in IntervalEnergy. Therefore, when iterating, to the next MQ/IntervalEnergy, [0] is always the next piece of data.
-                market_quantity[0] : float(energy_mw[0]),
-            })
+        data.append({
+            interval[0] : mq_data #[0] is the first matching result, and there is only one MarketQuantity/EnergyMW in MQ and only one Interval in IntervalEnergy. Therefore, when iterating, to the next MQ/IntervalEnergy, [0] is always the next piece of data.
+        })
     
     with open('./output/Demand_Now.json', 'w') as file:
         json.dump(data, file, indent=4)
@@ -103,6 +108,12 @@ def get_demand(year: int = Path(le=current_year, ge=2003)):
 @app.get('/supply')
 def get_supply():
     file_response = get_link(SUPPLY_URL, 'PUB_GenOutputCapability.xml')
-    pass
+    tree = parse_xml(file_response)
+
+    data = []
+
+
+
+    
 
 
