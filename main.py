@@ -89,16 +89,16 @@ def get_demand_now():
             mq_data[market_quantity[0]] = float(energy_mw[0])
 
         data.append({
-            interval[0] : mq_data #[0] is the first matching result, and there is only one MarketQuantity/EnergyMW in MQ and only one Interval in IntervalEnergy. Therefore, when iterating, to the next MQ/IntervalEnergy, [0] is always the next piece of data.
+            int(interval[0]) : mq_data #[0] is the first matching result, and there is only one MarketQuantity/EnergyMW in MQ and only one Interval in IntervalEnergy. Therefore, when iterating, to the next MQ/IntervalEnergy, [0] is always the next piece of data.
         })
     
     with open('./output/Demand_Now.json', 'w') as file:
         json.dump(data, file, indent=4)
 
-    return_kv_market_demand = next(key for key in data if 'Total Energy' in key and key.get('Interval') == str(count))
-    return_kv_ontario_demand = next(key for key in data if 'ONTARIO DEMAND' in key and key.get('Interval') == str(count))
+    return_market_demand = next(dict[str(count)]['Total Energy'] for dict in data if count in dict)
+    return_ontario_demand = next(dict[str(count)]['ONTARIO DEMAND'] for dict in data if count in dict)
 
-    return {'message': f'As of {current_hour}:{current_minute} on {current_year}/{current_month}/{current_day}, Ontario Demand is {return_kv_ontario_demand['ONTARIO DEMAND']} MW, and Total Energy (Market Demand) is {return_kv_market_demand['Total Energy']} MW. Ontario Demand is {round((return_kv_ontario_demand['ONTARIO DEMAND']/float(return_kv_market_demand['Total Energy']))*100, 2)}% of the Total Energy supplied by the IESO.'}
+    return {'message': f'As of {current_hour}:{current_minute} on {current_year}/{current_month}/{current_day}, Ontario Demand is {return_ontario_demand} MW, and Total Energy (Market Demand) is {return_market_demand} MW. Ontario Demand is {round((return_ontario_demand/float(return_market_demand))*100, 2)}% of the Total Energy supplied by the IESO.'}
 
 @app.get('/demand/{year}') 
 def get_demand(year: int = Path(le=current_year, ge=2003)):
@@ -111,6 +111,7 @@ def get_supply():
     tree = parse_xml(file_response)
 
     data = []
+
 
 
 
