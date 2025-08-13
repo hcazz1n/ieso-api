@@ -22,7 +22,7 @@ PRICE_URL = ''
 
 
 def get_link(web_link, doc_link): #gets the link to the xml/csv doc and downloads it for parsing
-    web_response = requests.get(web_link, timeout=5)
+    web_response = requests.get(web_link)
     soup = BeautifulSoup(web_response.text, 'html.parser')
     url = soup.find('a', href=doc_link)
     file_response = requests.get(f'{web_link}/{url.text}', stream=True)
@@ -61,10 +61,10 @@ def root():
 
 @app.get('/help')
 def help():
-    return {'/' : 'Navigates to the homepage.',
-            '/help' : 'Navigates to the helper page', 
-            '/demand' : f'Provides the current power demand in Ontario as of {current_hour}:{current_minute}', 
-            '/demand/{year}' : f'Provides the current power demand in Ontario for any year between 2003 and {current_year}'}
+    return {'/': 'Navigates to the homepage.',
+            '/help': 'Navigates to the helper page', 
+            '/demand': f'Provides the current power demand in Ontario as of {current_hour}:{current_minute}', 
+            '/demand/{year}': f'Provides the current power demand in Ontario for any year between 2003 and {current_year}'}
 
 
 @app.get('/demand')
@@ -89,14 +89,14 @@ def get_demand_now():
             mq_data[market_quantity[0]] = float(energy_mw[0])
 
         data.append({
-            int(interval[0]) : mq_data #[0] is the first matching result, and there is only one MarketQuantity/EnergyMW in MQ and only one Interval in IntervalEnergy. Therefore, when iterating, to the next MQ/IntervalEnergy, [0] is always the next piece of data.
+            int(interval[0]): mq_data #[0] is the first matching result, and there is only one MarketQuantity/EnergyMW in MQ and only one Interval in IntervalEnergy. Therefore, when iterating, to the next MQ/IntervalEnergy, [0] is always the next piece of data.
         })
     
     with open('./output/Demand_Now.json', 'w') as file:
         json.dump(data, file, indent=4)
 
-    return_market_demand = next(dict[str(count)]['Total Energy'] for dict in data if count in dict)
-    return_ontario_demand = next(dict[str(count)]['ONTARIO DEMAND'] for dict in data if count in dict)
+    return_market_demand = next(dict[count]['Total Energy'] for dict in data if count in dict)
+    return_ontario_demand = next(dict[count]['ONTARIO DEMAND'] for dict in data if count in dict)
 
     return {'message': f'As of {current_hour}:{current_minute} on {current_year}/{current_month}/{current_day}, Ontario Demand is {return_ontario_demand} MW, and Total Energy (Market Demand) is {return_market_demand} MW. Ontario Demand is {round((return_ontario_demand/float(return_market_demand))*100, 2)}% of the Total Energy supplied by the IESO.'}
 
@@ -111,6 +111,57 @@ def get_supply():
     tree = parse_xml(file_response)
 
     data = []
+    generators = tree.xpath('//Generator') #gets all the generator tags (not generators tag since there is only 1)
+
+    gen_count = 0
+
+    for generator in generators: #iterates through each generator found using xpath
+        output_data = {}
+        capability_data = {}
+        capacity_data = {}
+
+        name = generator.xpath('./GeneratorName/text()')
+        fueltype = generator.xpath('./FuelType/text()')
+        outputs = generator.xpath('./Outputs/Output') #xpath path to all the output tags in the outputs tag found in the current generator 
+        capabilities = generator.xpath('./Capabilities/Capability')
+        capacities = generator.xpath('./Capacities/AvailCapacity')
+
+        for output in outputs:
+            hour = output.xpath('./Hour/text()')
+            energy_mw = output.xpath('./EnergyMW/text()')
+            print(hour, energy_mw)
+            output_data[int(hour[0])] = int(energy_mw[0])
+
+        for capability in capabilities:
+            hour = capability.xpath('./Hour/text()')
+            energy_mw = capability.xpath('./EnergyMW/text()')
+            capability_data[int(hour[0])] = int(energy_mw[0])
+
+        for capacity in capacities:
+            hour = capacity.xpath('./Hour/text()')
+            energy_mw = capacity.xpath('./EnergyMW/text()')
+            capacity_data[int(hour[0])] = int(energy_mw[0])
+
+        data.append({
+            gen_count: {
+                'name': name[0],
+                'fueltype': fueltype[0],
+                'outputs': output_data,
+                'capabilities': capability_data,
+                'capacities': capacity_data
+            }
+        })
+
+        gen_count += 1
+
+        with open('./output/Supply_Now.json', 'w') as file:
+            json.dump(data, file, indent=4)
+
+    return 'OK'
+        
+
+
+
 
 
 
