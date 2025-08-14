@@ -17,7 +17,8 @@ current_minute = ('0' + str(date.minute), date.minute)[date.minute > 9]
 
 DEMAND_URL_YEAR = 'https://reports-public.ieso.ca/public/Demand'
 DEMAND_URL_NOW = 'https://reports-public.ieso.ca/public/RealtimeTotals'
-SUPPLY_URL = 'https://reports-public.ieso.ca/public/GenOutputCapability/'
+SUPPLY_URL = 'https://reports-public.ieso.ca/public/GenOutputCapability'
+SUPPLY_URL_TOTAL = ''
 PRICE_URL = ''
 
 
@@ -98,12 +99,14 @@ def get_demand_now():
     return_market_demand = next(dict[count]['Total Energy'] for dict in data if count in dict)
     return_ontario_demand = next(dict[count]['ONTARIO DEMAND'] for dict in data if count in dict)
 
-    return {'message': f'As of {current_hour}:{current_minute} on {current_year}/{current_month}/{current_day}, Ontario Demand is {return_ontario_demand} MW, and Total Energy (Market Demand) is {return_market_demand} MW. Ontario Demand is {round((return_ontario_demand/float(return_market_demand))*100, 2)}% of the Total Energy supplied by the IESO.'}
+    return {f'As of {current_hour}:{current_minute} on {current_year}/{current_month}/{current_day}, Ontario Demand is {return_ontario_demand} MW, and Total Energy (Market Demand) is {return_market_demand} MW. Ontario Demand is {round((return_ontario_demand/float(return_market_demand))*100, 2)}% of the Total Energy supplied by the IESO.'}
 
 @app.get('/demand/{year}') 
 def get_demand(year: int = Path(le=current_year, ge=2003)):
     file_response = get_link(DEMAND_URL_YEAR, f'PUB_Demand_{year}.csv')
-    return csv_to_json(file_response, f'Demand_{year}', 3)
+    csv_to_json(file_response, f'Demand_{year}', 3)
+
+    return f'Demand for {year} successfully found.'
 
 @app.get('/supply')
 def get_supply():
@@ -129,18 +132,26 @@ def get_supply():
         for output in outputs:
             hour = output.xpath('./Hour/text()')
             energy_mw = output.xpath('./EnergyMW/text()')
-            print(hour, energy_mw)
-            output_data[int(hour[0])] = int(energy_mw[0])
+            if energy_mw:
+                output_data[int(hour[0])] = int(energy_mw[0])
+            else:
+                output_data[int(hour[0])] = 'N/A'
 
         for capability in capabilities:
             hour = capability.xpath('./Hour/text()')
             energy_mw = capability.xpath('./EnergyMW/text()')
-            capability_data[int(hour[0])] = int(energy_mw[0])
+            if energy_mw:
+                capability_data[int(hour[0])] = int(energy_mw[0])
+            else:
+                capability_data[int(hour[0])] = 'N/A'
 
         for capacity in capacities:
             hour = capacity.xpath('./Hour/text()')
             energy_mw = capacity.xpath('./EnergyMW/text()')
-            capacity_data[int(hour[0])] = int(energy_mw[0])
+            if energy_mw:
+                capacity_data[int(hour[0])] = int(energy_mw[0])
+            else:
+                capacity_data[int(hour[0])] = 'N/A'
 
         data.append({
             gen_count: {
@@ -157,9 +168,12 @@ def get_supply():
         with open('./output/Supply_Now.json', 'w') as file:
             json.dump(data, file, indent=4)
 
-    return 'OK'
+    return f'{gen_count} generators found.'
         
-
+@app.get('/supply/total')
+def get_total_supply():
+    file_response = get_link(SUPPLY_URL_TOTAL, 'PUB_GenOutputbyFuelHourly.xml')
+    tree = parse_xml(file_response)
 
 
 
