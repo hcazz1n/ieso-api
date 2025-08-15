@@ -18,8 +18,7 @@ current_minute = ('0' + str(date.minute), date.minute)[date.minute > 9]
 DEMAND_URL_YEAR = 'https://reports-public.ieso.ca/public/Demand'
 DEMAND_URL_NOW = 'https://reports-public.ieso.ca/public/RealtimeTotals'
 SUPPLY_URL = 'https://reports-public.ieso.ca/public/GenOutputCapability'
-SUPPLY_URL_TOTAL = ''
-PRICE_URL = ''
+PRICE_URL_ZONAL = 'https://reports-public.ieso.ca/public/RealtimeZonalEnergyPrices/'
 
 
 def get_link(web_link, doc_link): #gets the link to the xml/csv doc and downloads it for parsing
@@ -53,6 +52,15 @@ def csv_to_json(response_csv, json_file_name, skip): #takes a csv retrieved from
     json_file.close()
     #os.remove('./temp.csv')
     return json_file
+
+def delete_none(d): #deletes all null/None values from a dict d
+    for key, value in list(d.items()):
+        if value is None:
+            del d[key]
+        elif isinstance(value, dict): #if value is a dict (i.e., sub-dictionaries) recursively call delete_none for the sub-dicts
+            delete_none(value)
+            if value == {}: #deletes any empty keys caused by deleting a sub-dictionary with content in it
+                del d[key]
 
 app = FastAPI(title='IESO API')
 
@@ -93,18 +101,18 @@ def get_demand_now():
             int(interval[0]): mq_data #[0] is the first matching result, and there is only one MarketQuantity/EnergyMW in MQ and only one Interval in IntervalEnergy. Therefore, when iterating, to the next MQ/IntervalEnergy, [0] is always the next piece of data.
         })
     
-    with open('./output/Demand_Now.json', 'w') as file:
+    with open('./output/demand_realtime.json', 'w') as file:
         json.dump(data, file, indent=4)
 
     return_market_demand = next(dict[count]['Total Energy'] for dict in data if count in dict)
     return_ontario_demand = next(dict[count]['ONTARIO DEMAND'] for dict in data if count in dict)
 
-    return {f'As of {current_hour}:{current_minute} on {current_year}/{current_month}/{current_day}, Ontario Demand is {return_ontario_demand} MW, and Total Energy (Market Demand) is {return_market_demand} MW. Ontario Demand is {round((return_ontario_demand/float(return_market_demand))*100, 2)}% of the Total Energy supplied by the IESO.'}
+    return {f'Returned JSON with five-minute intervals for {current_hour}:00. As of {current_hour}:{current_minute} on {current_year}/{current_month}/{current_day}, Ontario Demand is {return_ontario_demand} MW, and Total Energy (Market Demand) is {return_market_demand} MW. Ontario Demand is {round((return_ontario_demand/float(return_market_demand))*100, 2)}% of the Total Energy supplied by the IESO.'}
 
 @app.get('/demand/{year}') 
 def get_demand(year: int = Path(le=current_year, ge=2003)):
     file_response = get_link(DEMAND_URL_YEAR, f'PUB_Demand_{year}.csv')
-    csv_to_json(file_response, f'Demand_{year}', 3)
+    csv_to_json(file_response, f'demand_{year}', 3)
 
     return f'Demand for {year} successfully found.'
 
@@ -165,15 +173,58 @@ def get_supply():
 
         gen_count += 1
 
-        with open('./output/Supply_Now.json', 'w') as file:
+        with open('./output/supply_by_generator_hourly.json', 'w') as file:
             json.dump(data, file, indent=4)
 
-    return f'{gen_count} generators found.'
+    return f'{gen_count} generators found. Returned JSON with hour intervals for {current_year}/{current_month}/{current_day}'
         
-@app.get('/supply/total')
-def get_total_supply():
-    file_response = get_link(SUPPLY_URL_TOTAL, 'PUB_GenOutputbyFuelHourly.xml')
+@app.get('/price/zonal')
+def get_zonal_price():
+    file_response = get_link(PRICE_URL_ZONAL, 'PUB_RealtimeZonalEnergyPrices.xml')
     tree = parse_xml(file_response)
+
+    data = []
+    zones = tree.xpath('//TransactionZone')
+
+    for zone in zones:
+        interval_data = {}
+
+        name = zone.xpath('./ZoneName/text()')
+        intervals = zone.xpath('./IntervalPrice')
+
+        for interval in intervals:
+            num = interval.xpath('./Interval/text()')
+            zonal_price = interval.xpath('./ZonalPrice/text()')
+            energy_loss_price = interval.xpath('./EnergyLossPrice/text()')
+            energy_cong_price = interval.xpath('./EnergyCongPrice/text()')
+
+            interval_data[int(num[0])] = {
+                'Zonal Price': float(zonal_price[0]) if zonal_price else None, 
+                'Energy Loss Price': float(energy_loss_price[0]) if energy_loss_price else None, 
+                'Energy Congestion Price': float(energy_cong_price[0]) if energy_cong_price else None
+            }
+
+            delete_none(interval_data)
+
+        data.append({
+            name[0] : interval_data
+        })
+
+        with open('./output/zonal_pricing_realtime.json', 'w') as file:
+            json.dump(data, file, indent=4)
+
+    return 'OK'
+
+
+    
+
+        
+
+
+
+
+
+
 
 
 
