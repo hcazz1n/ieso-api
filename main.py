@@ -1,12 +1,22 @@
 from datetime import datetime, timezone, timedelta
-from fastapi import FastAPI, Path, Query
+from fastapi import FastAPI, Path, Query, middleware
 from bs4 import BeautifulSoup
 import requests
 import pandas
 import os
 from lxml import etree
 import json
-        
+
+
+app = FastAPI(title='IESO API')
+
+app.add_middleware(
+    middleware.cors.CORSMiddleware,
+    allow_origins=["http://localhost:5173"], #allow frontend to access API (change localhost to website build name)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 date = datetime.now(timezone(timedelta(hours=-4)))
 current_year = date.year
@@ -62,8 +72,6 @@ def delete_none(d): #deletes all null/None values from a dict d
             if value == {}: #deletes any empty keys caused by deleting a sub-dictionary with content in it
                 del d[key]
 
-app = FastAPI(title='IESO API')
-
 @app.get('/')
 def root():
     return 'This API is for obtaining IESO demand, supply, and pricing data overall, and by zone. /help to see all commands'
@@ -73,7 +81,9 @@ def help():
     return {'/': 'Navigates to the homepage.',
             '/help': 'Navigates to the helper page', 
             '/demand': f'Provides the current power demand in Ontario as of {current_hour}:{current_minute}', 
-            '/demand/{year}': f'Provides the current power demand in Ontario for any year between 2003 and {current_year}'}
+            '/demand/{year}': f'Provides the current power demand in Ontario for any year between 2003 and {current_year}',
+            '/supply': f'Provides the power (MW) supplied on every hour interval for the current day by each generator. Includes fuel type, output, capability, and capacity.',
+            '/price/zonal': f'Provides the zonal pricing ($CAD) in the 9 major power zonal areas on every hour interval for the current day, detailing price, energy loss price, and energy congestion price.'}
 
 
 @app.get('/demand')
