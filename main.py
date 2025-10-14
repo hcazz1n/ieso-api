@@ -1,5 +1,6 @@
 from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI, Path, Query, middleware
+from fastapi.middleware.cors import CORSMiddleware
 from bs4 import BeautifulSoup
 import requests
 import pandas
