@@ -84,7 +84,7 @@ def delete_none(d): #deletes all null/None values from a dict d
 
 @app.get('/')
 def root():
-    return FileResponse('front-end/index.html')
+    return "success"
 
 @app.get('/help')
 def help():
