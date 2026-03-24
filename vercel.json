@@ -5,7 +5,7 @@
       "use": "@vercel/python"
     }
   ],
-  "rewrites": [
+  "routes": [
     {
       "src": "/(.*)",
       "dest": "main.py"
