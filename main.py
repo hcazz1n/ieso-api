@@ -1,5 +1,7 @@
 from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI, Path, Query, middleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from bs4 import BeautifulSoup
 import requests
@@ -7,13 +9,18 @@ import pandas
 import os
 from lxml import etree
 import json
+import psycopg2                                         #allows SQL queries to be written and executed in Python
+from dotenv import load_dotenv
 
 
+load_dotenv()
 app = FastAPI(title='IESO API')
+
+app.mount("/assets", StaticFiles(directory="front-end"), name="assets")
 
 app.add_middleware(
     middleware.cors.CORSMiddleware,
-    allow_origins=["http://localhost:5173"], #allow frontend to access API (change localhost to website build name)
+    allow_origins=["https://ieso-api.vercel.app"], #allow frontend to access API (change localhost to website build name)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -27,7 +34,7 @@ current_hour = ('0' + str(date.hour), date.hour)[date.hour > 9]
 current_minute = ('0' + str(date.minute), date.minute)[date.minute > 9]
 
 DEMAND_URL_YEAR = 'https://reports-public.ieso.ca/public/Demand'
-DEMAND_URL_NOW = 'https://reports-public.ieso.ca/public/RealtimeTotals'
+DEMAND_URL_REALTIME = 'https://reports-public.ieso.ca/public/RealtimeTotals'
 SUPPLY_URL = 'https://reports-public.ieso.ca/public/GenOutputCapability'
 PRICE_URL_ZONAL = 'https://reports-public.ieso.ca/public/RealtimeZonalEnergyPrices/'
 
@@ -73,9 +80,11 @@ def delete_none(d): #deletes all null/None values from a dict d
             if value == {}: #deletes any empty keys caused by deleting a sub-dictionary with content in it
                 del d[key]
 
+#HTML PAGES
+
 @app.get('/')
 def root():
-    return 'This API is for obtaining IESO demand, supply, and pricing data overall, and by zone. /help to see all commands'
+    return FileResponse('front-end/index.html')
 
 @app.get('/help')
 def help():
@@ -87,10 +96,13 @@ def help():
             '/price/zonal': f'Provides the zonal pricing ($CAD) in the 9 major power zonal areas on every hour interval for the current day, detailing price, energy loss price, and energy congestion price.'}
 
 
+#API PAGES
+
 @app.get('/demand')
 @app.get('/demand/now')
-def get_demand_now():
-    file_response = get_link(DEMAND_URL_NOW, 'PUB_RealtimeTotals.xml')
+@app.get('/demand/realtime')
+def get_demand_realtime():
+    file_response = get_link(DEMAND_URL_REALTIME, 'PUB_RealtimeTotals.xml')
     tree = parse_xml(file_response)
 
     data = []
@@ -112,13 +124,82 @@ def get_demand_now():
             int(interval[0]): mq_data #[0] is the first matching result, and there is only one MarketQuantity/EnergyMW in MQ and only one Interval in IntervalEnergy. Therefore, when iterating, to the next MQ/IntervalEnergy, [0] is always the next piece of data.
         })
     
-    with open('./output/demand_realtime.json', 'w') as file:
+    records = []
+    date = f"{current_year}-{current_month}-{current_day}"
+
+    for entry in data:
+        for interval_num, metrics in entry.items():
+            calculated_hour = (int(interval_num) - 1) // 12 + 1
+            records.append((
+                date,
+                int(current_hour),      # The new hour variable
+                int(interval_num),
+                metrics.get('Total Energy'),
+                metrics.get('Total Loss'),
+                metrics.get('Total Load'),
+                metrics.get('Total Dispatch Load Scheduled OFF'),
+                metrics.get('Total 10S'),
+                metrics.get('Total 10N'),
+                metrics.get('Total 30R'),
+                metrics.get('ONTARIO DEMAND')
+            ))
+
+
+    with open('./output/demand_realtime.json', 'w') as file: #this is for testing so i can see locally what is being grabbed
         json.dump(data, file, indent=4)
 
-    return_market_demand = next(dict[count]['Total Energy'] for dict in data if count in dict)
-    return_ontario_demand = next(dict[count]['ONTARIO DEMAND'] for dict in data if count in dict)
+    # return_market_demand = next(dict[count]['Total Energy'] for dict in data if count in dict)
+    # return_ontario_demand = next(dict[count]['ONTARIO DEMAND'] for dict in data if count in dict)
 
-    return {f'Returned JSON with five-minute intervals for {current_hour}:00. As of {current_hour}:{current_minute} on {current_year}/{current_month}/{current_day}, Ontario Demand is {return_ontario_demand} MW, and Total Energy (Market Demand) is {return_market_demand} MW. Ontario Demand is {round((return_ontario_demand/float(return_market_demand))*100, 2)}% of the Total Energy supplied by the IESO.'}
+    #connect to database and store the fetched data
+    conn = None 
+    try:
+        # connect using the env var. for database
+        conn = psycopg2.connect(os.environ.get("DATABASE_URL"))
+        cursor = conn.cursor()
+
+        # the SQL query w/ placeholders (prevents against injection)
+        upsert_query = """
+            INSERT INTO realtime_demand (
+                date, 
+                hour, 
+                interval_5_min, 
+                total_energy_mw, 
+                total_loss_mw, 
+                total_load_mw, 
+                dispatch_load_off_mw, 
+                op_reserve_10s_mw, 
+                op_reserve_10n_mw, 
+                op_reserve_30r_mw, 
+                ontario_demand_mw
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (date, hour, interval_5_min) 
+            DO UPDATE SET 
+                total_energy_mw = EXCLUDED.total_energy_mw,
+                total_loss_mw = EXCLUDED.total_loss_mw,
+                total_load_mw = EXCLUDED.total_load_mw,
+                dispatch_load_off_mw = EXCLUDED.dispatch_load_off_mw,
+                op_reserve_10s_mw = EXCLUDED.op_reserve_10s_mw,
+                op_reserve_10n_mw = EXCLUDED.op_reserve_10n_mw,
+                op_reserve_30r_mw = EXCLUDED.op_reserve_30r_mw,
+                ontario_demand_mw = EXCLUDED.ontario_demand_mw;
+        """
+        
+        # execute & commit tuple to database
+        cursor.executemany(upsert_query, records)
+        conn.commit()
+
+    except psycopg2.Error as e:
+        return {"error": "Database insertion failed", "details": str(e)}
+    
+    finally:
+        if conn:
+            cursor.close()
+            conn.close()
+
+
+    return{"message": "Data successfully retrieved and saved to database."}
 
 @app.get('/demand/{year}') 
 def get_demand(year: int = Path(le=current_year, ge=2003)):
