@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+psycopg2-binary
+requests
+beautifulsoup4
+pandas
+lxml
+python-dotenv
