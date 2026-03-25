@@ -59,7 +59,7 @@ export default function App() {
         <div className="bg-white p-4 rounded-2xl shadow">
           <h2 className="text-xl font-semibold mb-2">Supply Data</h2>
           <button
-            onClick={() => handleFetch("/supply")}
+            onClick={() => handleFetch("/api/supply")}
             className="bg-red-700 text-white px-3 py-1 rounded"
           >
             Get Supply

@@ -82,7 +82,7 @@ def delete_none(d): #deletes all null/None values from a dict d
 
 #HTML PAGES
 
-@app.get('/')
+@app.get('/get')
 def root():
     return "success"
 
@@ -208,7 +208,7 @@ def get_demand(year: int = Path(le=current_year, ge=2003)):
 
     return f'Demand for {year} successfully found.'
 
-@app.get('/supply')
+@app.get('/api/supply')
 def get_supply():
     file_response = get_link(SUPPLY_URL, 'PUB_GenOutputCapability.xml')
     tree = parse_xml(file_response)
